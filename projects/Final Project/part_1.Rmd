@@ -1,0 +1,106 @@
+---
+title: "Final Project Step 1"
+author: "Steven Miller"
+date: "April 6, 2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+## Fan Ratings Dataset
+
+```{r fan_ratings}
+ratings <- read.csv('data/fan_ratings.csv')
+```
+
+Summary of Fan Ratings:
+```{r}
+summary(ratings)
+```
+
+Y - Year of Race  
+R - Round of Race in Season  
+GPNAME - Name of Race  
+P1 - Race Winner  
+P2 - Runner-Up  
+P3 - Third Place  
+RATING - Average fan rating on a scale from 1 to 10  
+
+```{r}
+ggplot(ratings, aes(RATING)) + geom_histogram(aes(y=..density..), binwidth = 0.5) + 
+  stat_function(fun = dnorm, args = list(mean = mean(ratings$RATING), sd = sd(ratings$RATING))) + 
+  labs(title="Average Fan Rating of Grands Prix", y="Density", x="Rating")
+```
+
+Is it possible that certain drivers winning a race would have an impact on the fan rating? It seems like a possibility to me. A fan of a certain driver might be more likely to give a race a higher rating if they enjoyed the race. Looking at the summary of the ratings table, it appears that the five winningest drivers in the data set were Hamilton, Vettel, Rosberg, Button, and Alonso. We also know that the mean rating is 6.793. Let's see what the average rating is for races where these drivers won.
+
+```{r}
+agg <- aggregate(ratings$RATING, by = list(ratings$P1), FUN = mean)
+agg <- agg[order(-agg$x),]
+names(agg) <- c("Driver","Rating")
+print(agg)
+```
+
+Recalling that our mean rating was 6.793 it appears that the five winningest drivers are all pretty close to this mean. From this, one could hypothesize that fans find it more or less exciting when a driver who doesn't typically win races wins.
+
+## Ergast F1 Dataset
+
+The first variable we'll take a look at is the duration of pit stops. Throughout many seasons, the rules regarding pit stops have changed. Over time, various seasons of racing will have had various average durations for pit stops. This can be a matter of seconds but leads to big changes in strategic decision making that can impact the way a race plays out.
+
+```{r}
+pitstops <- read.csv('data/pit_stops.csv', header=FALSE, col.names = c("raceId","driverId","stop","lap","time","duration","milliseconds"))
+summary(pitstops)
+head(pitstops)
+```
+
+raceId - the database id of the race the pit stop took place in
+driverId - the database id of the driver making a pit stop
+stop - the stop number out of all stops a driver made in a particular race
+lap - the lap number the pit stop was conducted on
+time - the time of day the pit stop took place
+duration - how long the pit stop took
+milliseconds - duration, but in milliseconds
+
+We can see from the summary that there are some vast outliers in the milliseconds column. We have a max value of almost forty minutes and a minimum value of 12.897 seconds. The mean is 45.738 and a median of 23.375. Based on these values, it's clear that the outliers are skewing the data. With a little bit of domain knowledge, I can safely say that any pit stops taking that long were not done by vehicles who were actually competitive during the race and can pretty safely be excluded from further analysis.
+
+```{r}
+stopsd <- sd(pitstops$milliseconds)
+print(stopsd)
+```
+
+Looking at the standard deviation of pit stop duration, it appears to be 171 milliseconds. I feel comfortable excluding any values greater than one-half standard deviation over the mean from further analysis, as this would indicate pit stops over two minutes in length.
+
+```{r}
+pitstops <- pitstops[pitstops$milliseconds<=mean(pitstops$milliseconds)+stopsd/2,]
+```
+
+With those values removed from the data, we can now further analyze the duration.
+
+```{r}
+ggplot(pitstops, aes(milliseconds)) + geom_histogram(binwidth = 60)
+```
+
+We can now see the peak around 25 seconds as well as a second, smaller spike around 30 seconds. This is likely due to rule changes at some point that either sped up or slowed down the average pit stop duration. It would be interesting, I think, to see how the average time has changed over the years. If we combine some tables together we can look into this further.
+
+## F1 races table
+
+```{r}
+races <- read.csv('data/races.csv', header=FALSE, col.names=c("raceId","year","round","circuitId","name","date","time","url"))
+head(races)
+```
+
+By joining the year data from the races table to the pit stops table by matching the raceId of the pit stop, we can now summarize the pit stop data to a mean value by year.
+
+```{r}
+pitstops <- merge(x=pitstops, y=races, by="raceId", all.x = TRUE)
+agg <- aggregate(pitstops$milliseconds, by = list(pitstops$year), FUN = mean)
+names(agg) <- c("Year","Milliseconds")
+ggplot(agg, aes(x=Year, y=Milliseconds/1000)) + geom_line() + geom_point() + labs(y="Duration in Seconds", title="Average Pit Stop Length by F1 Season", caption="Duration measured from the time a car enters pit lane to when it exits") + scale_x_continuous(breaks=seq(2011,2019,1))
+```
+
+From this graph, it appears that the variance from season to season is minimal and unlikely to be a reason for changes in fan ratings.
